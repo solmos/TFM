@@ -1,0 +1,740 @@
+---
+output: pdf_document
+---
+
+
+# LAKE study
+
+The clinical study by @nuria is a 48-week, multicenter and randomized study assessing the antiviral efficacy of two treatments for antiretroviral-naive HIV-infected patients. The study is named LAKE referring to the initials of the treatment names. The treatments were randomly assigned to the 126 subjects in 14 different clinical centers, with 63 patients being randomly assigned to efavirenz plus abacavir/lamivudine (`efavirenz` group) and the other 63 to lopinavir/ritonavir plus abacavir/lamivudine (`lopinavir` group). Efavirenz, lopinavir/ritonavir and abacavir/lamivudine are all recommended antiretroviral agents in HIV-infected patients [@nuria]. Patients were assessed at week four and every three months thereafter until week 48 for virological and immunological response. Efficacy of the treatments was measured by viral load (copies/mL) and CD4 cell count (cells/mm$^3$). In our analysis, we will only consider the CD4 cell count as our response variable.
+
+The primary goal of the following analysis is not just to estimate the treatment effects and check whether the difference is statistically significant. As @nuria conclude, and as we will see, it seems clear that the two treatments do appear to have the same effects on CD4 cell count. The following analysis focuses on descriptive modeling rather than formal inference, providing an example of our modeling strategy and showing the implementation of several multilevel models in the context of longitudinal multi-center clinical trials.
+
+## Exploratory analysis
+
+### Data
+
+We will use a data set obtained from the @nuria study with 58 patients per treatment (n = 116) in 14 different clinical centers. For the purposes of this analysis we will only consider the following variables from the data:
+
+* `CD4` = CD4 cell count (cells/mm$^3$)
+
+* `subject` = Unique patient identification number (1-126)
+
+* `center`= Clinical center
+
+* `treatment` = Factor with levels `efavirenz` and `lopinavir`
+
+* `age`: Age of the patient
+
+* `vl_0`: Basal viral load (copies/mL)
+
+* `week` = The week that the measurement was taken after randomization
+
+We are interested in modeling the CD4 cell count using some of these covariates as predictors. Specifically, we want to evaluate if there is a difference between the two treatments taking into account the relevant covariates. Notice the three level nested structure where measurements of CD4 cell counts are nested within patients and patients are nested within clinical centers.
+
+It is important to note that the data was originally presented in wide format; that is, each row of the data set represented one patient. In this format, measurements taken at different times are contained in different columns.
+
+```{r}
+lake_raw <- read.csv("lake.csv", header = TRUE, sep = ";", dec = ",")
+# Change \\xf1 for ñ in nusuario and convert to lowercase
+center <- encodeString(as.character(lake_raw$nusuario)) %>% 
+        gsub("\\xf1", "ñ", ., fixed = TRUE) %>% 
+        tolower() %>% 
+        as.factor
+levels(center) <- 1:14
+lake_wide_raw <- lake_raw %>% 
+        mutate(center = center,
+               sexo = factor(sexo, levels = c(1, 2),
+                             labels = c("Male", "Female")),
+               factorriesgo_homosexual = as.factor(factorriesgo_homosexual),
+               factor_riesgo_total = as.factor(factor_riesgo_total),
+               Grupo = factor(Grupo, levels = c(-1, 0),
+                              labels = c("efavirenz", "lopivanir")))
+
+wide_df_example <- lake_wide_raw %>% 
+        select(center, starts_with("CargaViral_"))
+#kable(head(wide_df_example), caption = "Data in wide format \\label{wide_data}")
+```
+
+
+It is common for researchers to present data in this wide format. However, for most statistical analyses, it is convenient to convert these data to long format, with one row per measurement. A time variable is therefore added to identify the time a measurement was taken.
+
+```{r functions}
+# Transform variables from wide to long format.
+# Argument match_string represents a character vector matching the different variables in wide format
+wide2long <- function(data, match_string, keep_id = FALSE) {
+        library(dplyr)
+        library(reshape2)
+        wide_df <- select(data, starts_with(match_string))
+        wide_df$id <- as.factor(1:nrow(wide_df))
+        if (keep_id == FALSE) {
+                long_df <- melt(wide_df, id.vars = "id") %>% 
+                        select(value)
+                colnames(long_df) <- match_string
+        } else {
+                long_df <- melt(wide_df, id.vars = "id") %>% 
+                        select(id, value)
+                colnames(long_df) <- c("subject", match_string)
+        }
+        long_df
+}
+
+# Function wide2long for multiple match_strings
+m_wide2long <- function(data, vars) {
+        do.call(cbind, (lapply(vars, (wide2long), data=data)))
+}
+```
+
+```{r data}
+repeated_vars_strings <- c("CargaViral_", "CD4A_", "CD4P_")
+repeated_vars_long <- m_wide2long(lake_wide_raw, repeated_vars_strings)
+lake_long_raw <- data.frame(subject = as.factor(rep(1:nrow(lake_raw), 5)),
+                   center = lake_wide_raw$center,
+                   npac = lake_wide_raw$npac,
+                   treatment = lake_wide_raw$Grupo,
+                   gender = lake_wide_raw$sexo,
+                   risk_factor = lake_wide_raw$factor_riesgo_total,
+                   homosexual = lake_wide_raw$factorriesgo_homosexual,
+                   vl_0 = lake_wide_raw$CargaViral_0,
+                   age = lake_wide_raw$edad,
+                   VL = repeated_vars_long[,1],
+                   CD4 = repeated_vars_long[,2],
+                   CD4_pct = repeated_vars_long[,3],
+                   week = rep(c(0, 12, 24, 36, 48),
+                              each = nrow(lake_raw))) %>% 
+        mutate(log_vl0 = log(vl_0 + 1),
+               sqrt_cd4 = sqrt(CD4))
+#kable(head(lake_long_raw[,-12]), caption = "First six observations in long format \\label{long_data}")
+```
+
+As can be seen in the left boxplot of Figure \ref{cd4_box}, there appears to be an outlier with a CD4 cell count of over 6000 cells/mm$^3$ at week 12, while the sample median is 298 cells/mm$^3$. After getting in contact with the original researchers of the study, they suggested that this was a data entry error and should be replaced with a value of 606 cells/mm$^3$. Another data entry error was found, as one of the patients had a value of 0 for age. This value was thus reported as missing.
+
+```{r}
+# Change value 0 of age
+lake_wide_raw$edad[which(lake_wide_raw$edad == 0)] <- NA
+lake_long_raw$age[which(lake_long_raw$age == 0)] <- NA
+```
+
+
+```{r fig.cap="Left: Boxplot of raw CD4 cell count values. Right: Boxplot with the outlier modified. \\label{cd4_box}", fig.height=3}
+cd4_raw_boxplot <- ggplot(lake_long_raw, aes(y = CD4, x = as.factor(week))) +
+        geom_boxplot() +
+        labs(x = "Week",
+             y = "CD4 cell count") +
+        theme_bw()
+# There seems to be an error in one measurement of CD4.
+# We change from 6604 to 606 as indicated by the researchers.
+lake_long <- lake_long_raw
+lake_long$CD4[which.max(lake_long$CD4)] <- 606
+lake_long$sqrt_cd4[which.max(lake_long$sqrt_cd4)] <- sqrt(606)
+
+lake_wide <- lake_wide_raw
+lake_wide$CD4A_12[which.max(lake_wide$CD4A_12)] <- 606
+cd4_modified_boxplot <- ggplot(lake_long, aes(y = CD4, x = as.factor(week))) +
+        geom_boxplot() +
+        labs(x = "Week", y="") +
+        theme_bw()
+
+grid.arrange(cd4_raw_boxplot, cd4_modified_boxplot, nrow = 1)
+```
+
+
+### Missing data
+
+Missing data is a common phenomenon in longitudinal studies that needs to be addressed. In our data, only 36 patients have all five measurements of CD4 cell counts. Table \ref{missing_table} shows the missing pattern of the outcomes in both treatment arms. We noticed that the `lopinavir` group had one subject for which there were no measurements and proceeded to remove it from our data set. This leaves a total of 115 subjects, 58 in the `efavirenz` group and 57 in the `lopinavir` group. Furthermore, the number of missing observations increases as time after randomization increases (Figure \ref{missing_cd4}).
+
+As was discussed in Section \ref{missing_data_section}, LMMs use available data to estimate patterns by cluster and then combine those estimates in a way that recognizes that estimates for clusters with more observed data (and less missing values) are more precise than estimates with fewer measurements. Thus under MAR, inferences from LMMs may be valid. We will assume that these data satisfy the MAR condition although further analysis is needed to give a more confident assessment.
+
+```{r missing values, results = "hide"}
+wide_VL <- lake_wide %>% 
+        select(starts_with("CargaViral_"))
+wide_CD4 <- lake_wide %>% 
+        select(starts_with("CD4A_"))
+sum(complete.cases(wide_VL))
+sum(complete.cases(wide_CD4))
+sum(is.na(lake_long))
+```
+
+
+```{r, results="hide"}
+missing_df <- lake_long %>% 
+        group_by(subject) %>% 
+        summarise(observed_values = sum(!is.na(CD4))) %>% 
+        mutate(treatment = lake_wide$Grupo)
+        
+missing_table <- missing_df %>%
+        group_by(treatment, observed_values) %>% 
+        summarise(n = n(),
+                  pct = round(n/(58)*100, 2))
+missing_table
+
+# Remove patient with no measurments of CD4
+i <- which(missing_df$observed_values == 0)
+lake_long_df <- filter(lake_long, subject != i)
+```
+
+\begin{table}[]
+\centering
+\caption{Number of available repeated measurements per subject, for each treatment arm separately.}
+\label{missing_table}
+\begin{tabular}{lllll}
+\hline
+                       & \multicolumn{2}{l}{efavirenz} & \multicolumn{2}{l}{lopinavir} \\ \hline
+Number of observations & n            & \%             & n            & \%             \\ \hline
+0                      & 0            & 0              & 1            & 1.72           \\
+1                      & 10           & 17.24          & 8            & 13.79          \\
+2                      & 12           & 20.69          & 10           & 17.24          \\
+3                      & 11           & 18.97          & 15           & 25.86          \\
+4                      & 6            & 10.34          & 7            & 12.07          \\
+5                      & 19           & 34.76          & 17           & 29.31          \\ \hline
+Total:                 & 58           & 100            & 58           & 100            \\ \hline
+\end{tabular}
+\end{table}
+
+```{r missing CD4, fig.cap="Pattern of missing CD4 values. \\label{missing_cd4}", fig.height=3, fig.width=6}
+long_CD4 <- select(lake_long, subject, week, CD4) %>% 
+        mutate(miss = is.na(CD4))
+ggplot(long_CD4, aes(as.factor(week), subject, fill = miss)) +
+        geom_tile(color = "white") +
+        theme_minimal() +
+        theme(panel.grid = element_blank(),
+              axis.text.y = element_blank(),
+              legend.text = element_text(size = 7)) +
+        scale_fill_discrete(name = "Missing?") +
+        labs(x = "Week",
+             y = "Patients")
+```
+
+
+```{r, results="hide"}
+md.pattern(lake_long)
+```
+
+
+
+### The response variable (CD4 cell count)
+
+Interest lies in estimating the treatment effects on the CD4 cell counts of patients, as well as how these effects vary between subjects and clinical centers. CD4 cell count will therefore be the response variable in our analysis. The observed values of `CD4` are summarized in Table \ref{cd4_sum}, which shows summary statistics for the observed `CD4` values by visit and total.
+
+
+The observed distribution of the CD4 cell counts is right skewed and does not seem normally distributed. The squared root of the CD4 cell count will be used, instead, as our response variable. This transformation produces a more suitable response variable, as seen in Figure \ref{cd4_hist_trans}.
+
+```{r fig.cap="Left: Histogram of CD4 cell counts. Right: Histogram of the squared root of CD4 cell counts. \\label{cd4_hist_trans}", fig.height=3}
+cd4_plot <- ggplot(lake_long_df, aes(x = CD4)) +
+        geom_histogram() +
+        labs(y = "Frequency") +
+        theme_bw()
+cd4_sqrt_plot <- ggplot(lake_long_df, aes(x = sqrt(CD4))) +
+        geom_histogram() +
+        labs(x = expression(sqrt(CD4)),
+             y = "") +
+        theme_bw()
+grid.arrange(cd4_plot, cd4_sqrt_plot, nrow = 1)
+```
+
+
+```{r}
+cd4_summary <- lake_long_df %>% 
+        summarise(week = "Total",
+                  Mean = mean(CD4, na.rm = TRUE),
+                  Median = median(CD4, na.rm = TRUE),
+                  SD = sd(CD4, na.rm = TRUE),
+                  n = length(CD4),
+                  nas = sum(is.na(CD4)))
+cd4_summary_by_group <- lake_long_df %>% 
+        mutate(week = as.factor(week)) %>% 
+        group_by(week) %>% 
+        summarise(Mean = mean(CD4, na.rm = TRUE),
+                  Median = median(CD4, na.rm = TRUE),
+                  SD = sd(CD4, na.rm = TRUE),
+                  n = length(CD4),
+                  nas = sum(is.na(CD4))) %>% 
+        rbind(., cd4_summary)
+colnames(cd4_summary_by_group) <- c("Week", "Mean", "Median",
+                                    "SD", "n", "NAs")
+kable(cd4_summary_by_group, caption = "Summary statistics for observed CD4 cell counts. \\label{cd4_sum}")
+```
+
+\newpage
+
+The distribution of CD4 cell counts do not seem to be much different in the two treatment arms, although the `efavirenz` group seems to be right skewed while the distribution for the `lopivanir` group seems more left skewed. This pattern can be seen in the ridge plot in Figure \ref{ridge_plot}.
+
+```{r fig.cap="Boxplot of mean CD4 cell counts of each patient according to treatment group. \\label{box_treatment}", fig.width=5, eval=FALSE}
+mean_cd4_df <- lake_long %>% 
+        group_by(subject) %>% 
+        summarise(mean_sqrt_cd4 = mean(sqrt_cd4, na.rm = TRUE),
+                  n = sum(is.na(sqrt_cd4))) %>% 
+        mutate(sqrt_cd4_0 = sqrt(lake_wide$CD4A_0),
+               sqrt_cd4_48 = sqrt(lake_wide$CD4A_48),
+               sqrt_cd4_diff = sqrt_cd4_48 - sqrt_cd4_0, 
+               cd4_diff = lake_wide$diff_cd4_48_0,
+               vl_0 = lake_wide$CargaViral_0,
+               homosexual = lake_wide$factorriesgo_homosexual,
+               hdl_0 = lake_wide$HDL_mg_0,
+               treat = lake_wide$Grupo,
+               center = lake_wide$nusuario,
+               gender = lake_wide$sexo)
+mean_boxplot <-  ggplot(mean_cd4_df, aes(treat, mean_sqrt_cd4)) +
+        geom_boxplot() +
+        labs(x = "Treatment",
+             y = "Mean CD4") +
+        theme_bw()
+cd4_boxplot <- ggplot(lake_long, aes(y = CD4, x = as.factor(week))) +
+        geom_boxplot() +
+        facet_wrap(~treatment) +
+        labs(x = "Week", y = "CD4") +
+        theme_bw()
+
+grid.arrange(mean_boxplot, cd4_boxplot, nrow = 2)
+```
+
+
+```{r fig.cap="Ridge plot of estimated density of transformed CD4 cell counts at each visit for the two treatment arms. \\label{ridge_plot}", fig.height=4}
+ridge_plot <- ggplot(lake_long,
+                     aes(x = sqrt_cd4, y = as.factor(week),
+                         fill = treatment)) +
+        stat_density_ridges(quantile_lines = TRUE,
+                            quantiles = 2,
+                            alpha = 0.4,
+                            scale = 0.9) +
+        labs(x = expression(sqrt(CD4)),
+             y = "Weeks") +
+        theme_bw()
+ridge_plot
+```
+
+
+
+The first impression is that there is no big difference between the two treatment groups in terms of the median CD4 cell count. The time pattern seems to be similar in both groups, with a big increase in the CD4 cell count from the first visit to the second visit and an a much more modest increase throughout the next weeks.
+
+
+### Within-subject covariance structure
+
+In the case of longitudinal studies, it is specially important to investigate the variance-covariance structure within patient. Figure \ref{autocorrelation_plot} shows the potential for an autocorrelation structure in which the correlation between observations from the same patient diminishes as the time between measurements increases, but this pattern is not obvious. We need to take this into consideration when specifying the structure of the variance-covariance matrix in our model. Extra care should be taken, however, interpreting Figure \ref{autocorrelation_plot} since there is a large number of missing values that could mask the true correlation structure.
+
+```{r, fig.cap="Scatterplot matrix (below diagonal) and correlation coefficients (above diagonal) of transformed CD4 values for complete cases only (n = 36). \\label{autocorrelation_plot}", fig.height=4}
+library(scales)
+library(dplyr)
+time_vars_missing <- select(lake_wide, Grupo, starts_with("CD4A_"))
+time_vars <- time_vars_missing[complete.cases(time_vars_missing),]
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
+{
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(0, 1, 0, 1))
+    r <- abs(cor(x, y))
+    txt <- format(c(r, 0.123456789), digits = digits)[1]
+    txt <- paste0(prefix, txt)
+    if(missing(cex.cor)) cex.cor <- 0.8/strwidth(txt)
+    text(0.5, 0.5, txt, cex = cex.cor * r)
+}
+col <- hue_pal()(2)
+pairs(time_vars[,-1], col = col[time_vars$Grupo], upper.panel=panel.cor, pch=19)
+```
+
+
+Furthermore, it is important to check if the assumption of homogeneous variance across the different time points is reasonable. Table \ref{var_table} shows the variance of the transformed `CD4` values at each visit. There appears to be a small increasing trend in the variance as time goes by. 
+
+The specific variance-covariance structure is not obvious and thus an unstructured variance-covariance matrix will be initially specified in our linear mixed model.
+
+```{r}
+var_vector <- apply(sqrt(time_vars_missing[,-1]), 2, var, na.rm = TRUE)
+var_table <- t(var_vector)
+colnames(var_table) <- paste("Week", seq(0, 48, 12))
+kable(var_table, caption = "Variance of transformed CD4 cell counts in each visit. \\label{var_table}")
+```
+
+
+\newpage
+
+### Multilevel structure
+
+Examination of the multilevel structure is also essential before specifying the model. The within subject structure can be visualized with a spaghetti plot as in Figure \ref{spaghetti_plot}. There is a large variability in the basal CD4 cell count. The LOESS fitted line in the plot shows a non-linear increasing trend over time, although several profiles deviate greatly from this general trend.
+
+
+
+```{r fig.cap="Spaghetti plot of CD4 profiles of all patients by treatment arm with loes fitted line. \\label{spaghetti_plot}", fig.height=3}
+ggplot(lake_long_df, aes(jitter(week), sqrt_cd4)) +
+        geom_path(aes(group = subject),
+                  alpha = 0.3) +
+        geom_smooth(se = FALSE, color = "black") +
+        facet_wrap(~ treatment) +
+        labs(x = "Weeks after randomization",
+             y = expression(sqrt(CD4))) +
+        theme_bw()
+```
+
+Figure \ref{sample_plot} further explores the trends in CD4 cell count over time to check whether linearity seems reasonable. From both, the general trend in Figure \ref{spaghetti_plot} and the cases in Figure \ref{sample_plot}, we observe that important aspects of the data may be missed by assuming a linear trend. A polynomial growth model or a piece-wise linear model may be more appropriate for these data.
+
+```{r, fig.cap="Lattice plot of transformed CD4 cell count over time for 24 randomly selected patients. \\label{sample_plot}", fig.height=4}
+set.seed(12345)
+rsample <- sample(1:nrow(lake_wide), 24)
+random_subjects_df <- filter(lake_long_df, subject %in% rsample)
+ggplot(random_subjects_df, aes(week, sqrt(CD4))) +
+        geom_point() +
+        geom_smooth(method = "lm", se = FALSE) +
+        facet_wrap(~ subject) +
+        labs(x = "Weeks after randomization",
+             y = expression(sqrt(CD4))) +
+        theme_bw()
+```
+
+The third level grouping factor (`center`) of these data, in which patients and measurements are nested, can be investigated by the lattice plot in Figure \ref{centers_plot}. Although the trends are similar, we find some relevant differences between clinical centers and therefore we will initially include this third-level structure in our hierarchical model.
+
+```{r fig.cap="Transformed CD4 profiles for the 14 clinical centers \\label{centers_plot}", fig.height=4}
+ggplot(lake_long_df) +
+        geom_path(aes(week, sqrt_cd4,
+                      group = subject,
+                      color = treatment),
+                  alpha = 0.5, size = 1) +
+        facet_wrap(~ center) +
+        labs(x = "Weeks after randomization",
+             y = expression(sqrt(CD4))) +
+        theme_bw()
+```
+
+
+### Covariates
+
+Other covariates that may be of interest are age, basal viral load and gender. Table \ref{} shows summary statistics of these three observed variables. It is possible to investigate what covariates can help explain the variability in CD4 cell count with the help of figures such as Figure \ref{covariates_plot}. Although age and viral load are continuous variables, we divide the observations in three and two intervals, respectively, and compare the profiles of transformed `CD4` values for the different intervals. Age appears to have a substantial effect on the profiles of CD4 cell count. Older patients do not show the upward trend that younger patients show, as can be seen in panel (a) of Figure \ref{covariates_plot}. 
+
+In the case of panel (b) of Figure \ref{covariates_plot}, the observed values of viral load at baseline are divided in two intervals, plus a third category showing the profiles for which no basal viral loads are recorded. It appears that patients with a higher viral load at baseline may incur in a steeper initial increase than patients with lower basal viral loads. On the other hand, such scatterplot for gender (not shown) does not show any substantial differences in the profiles observed.
+
+
+```{r fig.cap="Transformed CD4 value profiles for patients within different intervals of age (a) and (log) basal viral load. \\label{covariates_plot}", fig.height=4}
+vl0_plot <- ggplot(lake_long_df, aes(jitter(week), sqrt_cd4)) +
+        geom_path(aes(group = subject, color = treatment),
+                  alpha = 0.3) +
+        geom_smooth(se = FALSE, color = "black") +
+        facet_wrap(~ cut_interval(log_vl0, 2)) +
+        labs(x = "Weeks since randomization",
+             y = expression(sqrt(CD4)),
+             title = "(b) (Log) Basal viral load") +
+        theme_bw()
+
+no_missing_age_df <- lake_long_df[!is.na(lake_long_df$age),]
+age_plot <- ggplot(no_missing_age_df, aes(jitter(week), sqrt_cd4)) +
+        geom_path(aes(group = subject, color = treatment),
+                  alpha = 0.3) +
+        geom_smooth(se = FALSE, color = "black") +
+        facet_wrap(~ cut_interval(age, 3)) +
+        labs(x = "Weeks since randomization",
+             y = expression(sqrt(CD4)),
+             title = "(a) Age") +
+        theme_bw()
+
+no_missing_gender_df <- lake_long_df[!is.na(lake_long_df$gender),]
+gender_plot <- ggplot(no_missing_gender_df, aes(jitter(week), sqrt_cd4)) +
+        geom_path(aes(group = subject, color = treatment),
+                  alpha = 0.3) +
+        geom_smooth(se = FALSE, color = "black") +
+        facet_wrap(~ gender) +
+        labs(x = "Weeks since randomization",
+             y = expression(sqrt(CD4))) +
+        theme_bw()
+
+grid.arrange(age_plot, vl0_plot, nrow = 2)
+```
+
+
+
+## Models
+
+For these data we will focus on descriptive modeling rather than formal inference, showing the implementation of several multilevel models in the context of longitudinal multi-center clinical trials.
+```{r}
+get_estimates <- function(model) {
+        smer <- summary(model)
+        fixed_effects <- as.data.frame(coef(smer))
+        random_effects <- as.data.frame(VarCorr(model, comp = c("Variance", "Std.Dev")))
+        estimates_list <- list(fixed_effects = fixed_effects,
+                               random_effects = random_effects)
+        estimates_list
+}
+```
+
+
+
+### Model 1: Random intercepts model with no predictors
+
+Let $y_{ijk}$ be the square root of the CD4 cell count for patient $j = 1, \ldots, 115$ in center $i = 1, \ldots, 14$ recorded at week $k$.
+
+
+We start with a random intercepts model with no predictors at any level, which is given by
+
+$$y_{ijk} = \beta_0 + b_{ij} + c_{0i} + \epsilon_{ijk}$$
+
+where 
+
+* $\beta_0$ is the population mean transformed CD4 count,
+
+* $b_{ij} \sim N(0, \sigma^2_b)$  is a random intercept specific to patient $j$ within center $i$,
+
+* $c_{i} \sim N(0, \sigma^2_c)$ is a random intercept specific to center $i$,
+
+* $\epsilon_{ijk} \sim N(0, \sigma^2)$ is the residual random error within subject $j$ and center $i$.
+
+
+Furthermore, we assume that $b_{ij}$, $c_i$ and $\epsilon_{ijk}$ are independent of each other.
+
+This model provides a first assessment of the amount of variation at each level of the grouping factors (`subject` and `center` in this case), as well as a comparison of the variability within clusters and the variability between clusters. The parameters of this and later models will be estimated via REML as implemented in the `lme4` package and are shown in Tables \ref{fixed1} and \ref{vcomp1}. The within subject variability is given by the variance component $\sigma^2$ and is estimated at 12.86, while the estimated variance between subjects from the same center $\hat \sigma^2_b$ is 19.64. The variance between centers $\sigma_{c}^2$ is estimated to be 1.99.
+
+From the estimates of variance components, 56.9% of total variability in transformed `CD4` values is due to differences between patients within the same center, 5.8% of total variability is due to differences between centers and 37.9% of total variability is due to differences over time for each patient. Accordingly, we will investigate whether adding covariate `week` as a linear predictor at Level 1 can reduce the unexplained variability within patient.
+
+
+```{r}
+lmm1 <- lmer(sqrt_cd4 ~ 1 + (1|subject) + (1|center), data = lake_long_df)
+slmm1 <- summary(lmm1)
+lmm1_estimates <- get_estimates(lmm1)
+kable(lmm1_estimates[[1]], caption = "Estimated fixed effects for Model 1. \\label{fixed1}")
+```
+
+```{r vcomp_function}
+# Variance components
+get_vcomp <- function(model){
+        r_eff <- get_estimates(model)$random_effects %>% 
+                filter(is.na(var2))
+        total_variance <- sum(r_eff$vcov)
+        vcomp_table <- r_eff %>% 
+                transmute(Group = grp, Name = var1,
+                          Variance = vcov,
+                          Percentage = round(100 * vcov / total_variance, 2))
+        vcomp_table
+}
+kable(get_vcomp(lmm1), caption = "Estimated variance components for Model 1. \\label{vcomp1}")
+```
+
+
+### Model 2: Unconditional linear growth model with random intercepts
+
+We then fit a growth model (Model 2), which adds time as a predictor at Level 1 and keeps the two varying intercepts, one for each grouping factor. Let $week_{ijk}$ be the weeks after randomization of measure $k$ of patient $j$ in center $i$. Model 2 is thus given by
+
+$$y_{ijk} = \beta_0 + \beta_1 week_{ijk} + b_{ij} + c_{i} + \epsilon_{ijk},$$
+
+where 
+
+* $\beta_0, b_{ij}, c_i$, and $\epsilon_{ijk}$ are as in Model 1,
+
+* $\beta_1$ describes the change in the transformed value of `CD4` due to a one week change in time.
+
+
+Table \ref{vcomp2} shows the estimated variance components for this model. The estimated within subject variance component $\hat \sigma^2$ is 8.15, which is a 36% reduction in the unexplained variability within patient, implying that 36% of within-patient variability in transformed `CD4` values can be explained by linear growth over time. Indeed, the increase in mean transformed `CD4` during the 48-week observation period seems to be statistically significant with a t-value of 12.7 (Table \ref{fixed2}).
+
+```{r}
+lmm2 <- lmer(sqrt_cd4 ~ week  + (1|subject) + (1|center), data = lake_long_df)
+slmm2 <- summary(lmm2)
+lmm2_estimates <- get_estimates(lmm2)
+kable(lmm2_estimates$fixed_effects, caption = "Estimated fixed effects for Model 2. \\label{fixed2}")
+```
+
+
+```{r}
+kable(get_vcomp(lmm2), caption = "Variance components for Model 2. \\label{vcomp2}")
+```
+
+
+### Model 3: Conditional linear growth model
+
+We can add more complexity to our model by including `week` at Level 2. This model is defined by
+
+$$y_{ijk} = \beta_0 + \beta_1 \cdot week_{ijk} + b_{ij} week_{ijk} + c_i + \epsilon_i.$$
+
+The estimated fixed effects and variance components are shown in Tables \ref{fixed3} and \ref{vcomp3}. The estimated unexplained variability within patient $\hat \sigma^2$ is reduced from 8.16 to 6.60 by adding time at Level 2 of our model.
+
+```{r}
+lmm3 <- lmer(sqrt_cd4 ~ week + (week|subject) + (1|center), data = lake_long_df)
+slmm3 <- summary(lmm3)
+lmm3_estimates <- get_estimates(lmm3)
+kable(lmm3_estimates$fixed_effects, caption = "Estimated fixed effects for Model 3. \\label{fixed3}")
+```
+
+
+```{r}
+kable(get_vcomp(lmm3), caption = "Estimated variance components for Model 3. \\label{vcomp3}")
+```
+
+
+### Model 4: Unconditional quadratic growth model
+
+In our exploratory analysis we observed that perhaps a linear within-patient trend was not appropriate. We suggested a quadratic growth model, which we define as
+
+$$y_{ijk} = \beta_0 + \beta_1 \cdot week_{ijk} + \beta_2 \cdot week^2_{ijk} + b_{ij} + c_{i} + \epsilon_{ijk}.$$
+
+
+```{r}
+lmm4 <- lmer(sqrt_cd4 ~ week + I(week^2) + (1|subject) + (1|center), data = lake_long_df)
+slmm4 <- summary(lmm3)
+lmm4_estimates <- get_estimates(lmm3)
+kable(lmm4_estimates$fixed_effects, caption = "Estimated fixed effects for Model 4. \\label{fixed4}")
+```
+
+```{r}
+kable(get_vcomp(lmm4), caption = "Estimated variance components for Model 4. \\label{vcomp4}")
+```
+
+In this case, the variability within subject is further reduced from 6.60 to 5.34 by accounting for the possible non-linear trend in the profiles of transformed `CD4`. Note how the the unexplained variation within patient is not decreasing as much as with previous models.
+
+
+### Model 5: Broken-stick model
+
+In the exploratory analysis, it was also suggested that a broken stick linear mixed model could fit these data well. This model is a piece-wise linear model in which the regression lines are connected at the point where the line "breaks". This break point was observed to be at week 12 after randomization. We fit a broken-stick linear mixed model with `week` also at Level 2 specified by
+
+$$y_{ijk} = \beta_0 + \beta_1 B_l(week) + \beta_2 B_r(week) + b_i + c_i + \epsilon_{ijk},$$
+
+where
+
+$$
+B_l(x) = \begin{cases}
+12.5 - x, & \text{si } x < 12.5 \\
+0, & \text{si } x \geq 12.5 
+\end{cases}
+$$
+
+and
+
+$$
+B_r(x) = \begin{cases}
+x - 12.5, & \text{si } x > 12.5 \\
+0, & \text{si } x \leq 12.5 
+\end{cases}
+$$
+
+This model results in the lowest unexplained variability within patient with $\hat \sigma^2 = 4.50$ (Table \ref{vcomp5}). The estimated fixed effects are shown in Table \ref{fixed5}.
+```{r}
+B_l <- function(x) ifelse(x < 12.5, 12.5 - x, 0) # basis funtion 1
+B_r <- function(x) ifelse(x < 12.5, 0, x - 12.5) # basis function 2
+lmm5 <- lmer(sqrt_cd4 ~ B_l(week) + B_r(week) + (week|subject) + (1|center), lake_long_df)
+slmm5 <- summary(lmm5)
+lmm5_estimates <- get_estimates(lmm5)
+kable(lmm5_estimates$fixed_effects, caption = "Estimated fixed effects for Model 5. \\label{fixed5}")
+```
+
+```{r}
+kable(get_vcomp(lmm5), caption = "Estimated variance components for Model 5. \\label{vcomp5}")
+```
+
+
+### Model 6: Broken stick with treatment and age as covariates
+
+@nuria were interested in the effect of `efavirenz` and `lopinavir` on the CD4 cell count, thus we add the covariate `treatment` to the previous broken-stick model. Moreover, Figure \ref{covariates_plot} suggested that age also had an effect on the CD4 cell count profiles so it is also added to the model. Let $treatment_{j}$ be the treatment group indicator variable, with $treatment_{j} = 1$ if patient $j$ belongs to the `lopinavir` group and $treatment_j = 0$ if patient $j$ belongs to the `efavirenz` group. This model is given by
+
+
+$$y_{ijk} = \beta_0 + \beta_1 B_l(week) + \beta_2 B_r(week) + \beta_3 \cdot tratment_j + \beta_4 \cdot age + b_i + c_i + \epsilon_{ijk},$$
+
+
+The estimated fixed and random effects are shown in Tables \ref{fixed6} and \ref{vcomp6}, respectively. We observe how the treatment effect is not significant (t-value = -3.62) while covariate age is. 
+
+```{r}
+lmm6 <- lmer(sqrt_cd4 ~ B_l(week) + B_r(week) + treatment + age + (week|subject) + (1|center), lake_long_df)
+slmm6 <- summary(lmm6)
+lmm6_estimates <- get_estimates(lmm6)
+kable(lmm6_estimates$fixed_effects, caption = "Estimated fixed effects for Model 6. \\label{fixed6}")
+```
+
+
+```{r}
+kable(get_vcomp(lmm6), caption = "Estimated variance components for Model 6. \\label{vcomp6}")
+```
+
+
+## Diagnostics
+
+Residual plots of Pearson residuals against fitted values for this and previous models are shown in Figure \ref{res_plot}. The residual plot for Model 1 shows that the variability of residuals for this model increases with fitted values. Even though there are some minor deviations, the rest of models show residual plots reasonable enough to assume normality and homocedasticity.
+
+```{r, fig.cap="Pearson residuals against fitted values for all models. \\label{res_plot}", fig.height=7}
+plot_residuals <- function(model, title = ""){
+        model_residuals <- residuals(model, type = "pearson")
+        residual_df <- data.frame(fitted = fitted(model),
+                                  residuals = model_residuals)
+        ggplot(residual_df, aes(fitted, residuals)) +
+                geom_point(alpha = 0.3) +
+                geom_hline(yintercept = 0) +
+                geom_smooth(se = FALSE) +
+                labs(y = "Pearson residuals",
+                     x = "Fitted values",
+                     title = title) +
+                theme_bw()
+}
+res_plot1 <- plot_residuals(lmm1, "Model 1")
+res_plot2 <- plot_residuals(lmm2, "Model 2")
+res_plot3 <- plot_residuals(lmm3, "Model 3")
+res_plot4 <- plot_residuals(lmm4, "Model 4")
+res_plot5 <- plot_residuals(lmm5, "Model 5")
+res_plot6 <- plot_residuals(lmm6, "Model 6")
+grid.arrange(res_plot1, res_plot2, res_plot3, res_plot4,
+             res_plot5, res_plot6, nrow = 3)
+```
+
+
+
+
+## Model comparison
+
+The predicted response profiles allows us to visually check how well each model fits the data. Figure \ref{fit_plot} shows the observed profiles for 50 randomly selected patients, together with the predicted profiles for Models 2-6. From these plots, the broken-stick models seem to produce response profiles very similar to the observed profiles. Indeed, in the previous section we found that these two models had the lowest unexplained variability within patient over time.
+
+Note that the broken-stick models, however, are not nested with respect to the other models so comparisons via LRT are not possible. We therefore compare all models based on AIC and BIC. As shown in Table \ref{aic}, the model with the lowest AIC and BIC values is Model 6. Thus we choose the broken-stick model with time, treatment and age as predictor variables and we account for the intra-cluster correlation by including a random intercept and random slope at Level 2 of our model (patient within center) and a random intercept at Level 3 (center).
+
+```{r}
+all_models <- list(lmm1, lmm2, lmm3, lmm4, lmm5, lmm6)
+aic_values <- sapply(all_models, AIC)
+bic_values <- sapply(all_models, BIC)
+model_names <- paste("Model", 1:6)
+aic_df <- data.frame(Model = factor(model_names), AIC = aic_values,
+                     BIC = bic_values)
+kable(aic_df, caption = "AIC and BIC values for all models. \\label{aic}")
+```
+
+
+```{r, fig.cap="Comparison of 50 randomly selected observed patient profiles and predicted patient profiles for Models 2-6. \\label{fit_plot}", fig.height=7}
+plot_fit <- function(model, title = "") {
+        pred <- predict(model)
+        model_frame <- model.frame(model)
+        pred_df <- data.frame(pred, model_frame[,-1])
+        subjects <- unique(pred_df$subject)
+        random_subjects <- sample(subjects, 50)
+        random_pred_df <- filter(pred_df,
+                                 subject %in% random_subjects)
+        ggplot(random_pred_df, aes(week, pred, group = subject)) +
+                geom_line(alpha = 0.5) +
+                labs(x = "Weeks after randomization",
+                     y = "Predicted",
+                     title = title) +
+                theme_bw()
+}
+subjects <- unique(lake_long_df$subject)
+random_subjects <- sample(subjects, 50)
+random_obs_df <- filter(lake_long_df, subject %in% random_subjects)
+observed_plot <- ggplot(random_obs_df, aes(week, sqrt_cd4, group = subject)) +
+        geom_line(alpha = 0.5) +
+        labs(x = "Weeks",
+             y = "Observed",
+             title = "Observed profiles") +
+        theme_bw()
+set.seed(653)        
+pfit2 <- plot_fit(lmm2, "Model 2 estimates")
+pfit3 <- plot_fit(lmm3, "Model 3 estimates")
+pfit4 <- plot_fit(lmm4, "Model 4 estimates")
+pfit5 <- plot_fit(lmm5, "Model 5 estimates")
+pfit6 <- plot_fit(lmm6, "Model 6 estimates")
+
+grid.arrange(observed_plot, pfit2, pfit3, pfit4, pfit5, pfit6,
+             nrow = 3)
+```
+
+
+To end the analysis, we use our final model (Model 6) to predict the transformed CD4 cell count profiles for 50 randomly selected patients. Figure \ref{pred_final} shows these profiles divided in three age intervals and with assigned treatments identified by color. We see a general increasing trend, specially during the first weeks, but there is a lot of variability between patients. The treatment effects do not appear to differ, while age seems to be an important factor.
+
+```{r fig.cap="Predicted transformed CD4 cell count profiles for 50 randomly chosen patients divided in three age intervals with treatments identified by color. \\label{pred_final}", fig.height=4}
+set.seed(123)
+pred <- predict(lmm6)
+model_frame <- model.frame(lmm6)
+pred_df <- data.frame(pred, model_frame[,-1])
+subjects <- unique(pred_df$subject)
+random_subjects <- sample(subjects, 50)
+random_pred_df <- filter(pred_df, subject %in% random_subjects)
+ggplot(pred_df, aes(week, pred, group = subject,
+                           color = treatment)) +
+        geom_line(alpha = 0.5) +
+        labs(x = "Weeks after randomization",
+             y = "Predicted") +
+        facet_wrap(~ cut_interval(age, 3)) +
+        theme_bw()
+```
+

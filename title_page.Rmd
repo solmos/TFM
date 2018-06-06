@@ -1,0 +1,33 @@
+---
+output:
+  pdf_document:
+          fig_caption: no
+---
+
+```{r, out.width = "200px", fig.align='left'}
+knitr::include_graphics("uoc.jpg")
+```
+
+
+\begin{centering}
+
+\vspace{3 cm}
+
+\Huge
+{\bf Analysis of clustered data using linear mixed models}
+
+\vspace{3 cm}
+
+\Large Sergio Olmos Pardo
+
+\normalsize Máster en Bioinformática \& Bioestadística
+
+\normalsize Área: Análisis de datos
+
+\normalsize Consultor: Núria Pérez Álvarez
+
+\normalsize Coordinador: Carles Ventura Royo
+
+\normalsize 05/06/2018
+
+\end{centering}

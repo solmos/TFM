@@ -1,0 +1,16 @@
+---
+title: "Missing data"
+output: pdf_document
+---
+
+# Missing data \label{missing_data_section}
+
+Missing data makes standard analyses more difficult to implement and may even make inappropriate an otherwise valid method depending on the mechanism underlying the missing data. Incomplete data sets are common throughout all branches of empirical research, specially in the types of data that LMMs and GEEs are best suited for. These include longitudinal studies where patients drop out or surveys with non-responses. 
+
+The missing data mechanism can be distinguished between missing completely at random (MCAR), missing at random (MAR) and missing not at random (MNAR) [@rubin76; @molen2004]. Under MCAR, outcomes are independent of the mechanism governing the missingness. Under MAR, however, the missingness may depend on the observed but not on the unobserved measurements. Finally, when a MNAR mechanism operates, missingness may depend on both, the unobserved and observed outcomes.
+
+Different strategies for handling missing data have been devised. Simple methods include complete data analysis (CC), where only those cases for which all measurments were recorded are included, and imputation strategies, where missing values are filled in with a given imputation model. Common imputation strategies include simple mean imputation where missing observations are substituted by the mean value for that variable or imputation models which base imputed data on observations with simalar covariate profiles. A widely used form of imputation specific to longitudinal data is last observation carried forward (LOCF), where whenever a measurment is missing, the last observed value for that subject (or cluster) is substituted. The dangers of these simple methods are numerous and serious, including missrepresentation of missing observations, loss of efficiency and biased results[@molen2004].
+
+@rubin76 showed that, under MAR and some mild assumptions, likelihood-based inference remains valid when the missing data mechanism is ignored. This result is called ignorability and, in general, makes the likelihood-based LMM preferable to other methods such as GEEs when data are missing [@rubin76]. LMMs use available data to estimate patterns by cluster and then combine those estimates in a way that recognizes that estimates for clusters with more observed data (and less missing values) are more precise than estimates with fewer measurments.
+
+Ignorability is not a panacea, as several issues arise even under MAR [@molen2009; @molen2008]. In our subsequent analyses missing data patterns will be considered briefly and we will assume that the data satisfies the MAR condition. Further analysis should be performed to make sure analysis using ignorability is valid. A possible future project could involve a sensitivity analysis as outlined in @gelman2005.

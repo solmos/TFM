@@ -1,0 +1,158 @@
+---
+output:
+  pdf_document:
+          fig_caption: yes
+          number_sections: yes
+bibliography: tfm.bib
+csl: american-statistical-association.csl
+urlcolor: black
+linkcolor: black
+fontsize: 11pt
+geometry: margin = 1.2in
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{placeins}
+- \usepackage{fancyhdr}
+- \usepackage{setspace}
+- \usepackage{chngcntr}
+- \usepackage{microtype}
+- \onehalfspacing
+- \counterwithin{figure}{section}
+- \counterwithin{table}{section}
+---
+
+```{r global_options, include=FALSE}
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(GGally)
+library(ggridges)
+library(mice)
+library(scales)
+library(lme4)
+library(geepack)
+opts_chunk$set(fig.path = 'figures/', echo = FALSE, warning = FALSE, message = FALSE,
+               fig.align = "center")
+```
+
+\pagenumbering{gobble}
+
+```{r child = "title_page.Rmd"}
+```
+
+\newpage
+
+```{r child = "license.Rmd"}
+```
+
+\newpage
+\pagestyle{fancy}
+
+\fancyhead[LE,RO]{}
+\fancyhead[LO,RE]{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\pagenumbering{roman}
+
+\fancyhead[CO,CE]{Abstract}
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
+
+```{r child = "abstract.Rmd"}
+```
+
+
+\newpage
+\fancyhead[CO,CE]{Table of Contents}
+\setcounter{tocdepth}{2}
+\tableofcontents
+
+\newpage
+\pagenumbering{arabic}
+
+\FloatBarrier
+\newpage
+\fancyhead[CO,CE]{Introduction}
+
+```{r child = "introduction.Rmd"}
+```
+
+\FloatBarrier
+\newpage
+\fancyhead[CO,CE]{Clustered data}
+
+
+```{r child = "clustered_data.Rmd"}
+
+```
+
+\FloatBarrier
+\newpage
+\fancyhead[CO,CE]{Linear mixed models}
+
+```{r child = "lmm.Rmd"}
+
+```
+
+\FloatBarrier
+\newpage
+\fancyhead[CO,CE]{Generalized estimating equations}
+
+```{r child = "gee.Rmd"}
+
+```
+
+\FloatBarrier
+\newpage
+\fancyhead[CO,CE]{Missing data}
+
+```{r child = "missing.Rmd"}
+
+```
+
+
+\FloatBarrier
+\newpage
+\fancyhead[CO,CE]{LAKE study}
+
+```{r child = "lake_data.Rmd"}
+
+```
+
+\FloatBarrier
+\newpage
+\fancyhead[CO,CE]{Microarray study}
+
+```{r child = "microarray_study.Rmd"}
+
+```
+
+
+\FloatBarrier
+\newpage
+\fancyhead[CO,CE]{Conclusion}
+
+```{r child = "discussion.Rmd"}
+
+```
+
+\FloatBarrier
+
+\newpage
+\fancyhead[CO,CE]{List of Figures}
+\addcontentsline{toc}{section}{List of Figures}
+\listoffigures
+
+\newpage
+\fancyhead[CO,CE]{List of Tables}
+\addcontentsline{toc}{section}{List of Tables}
+\listoftables
+
+
+\FloatBarrier
+\newpage
+\fancyhead[CO,CE]{References}
+
+# References

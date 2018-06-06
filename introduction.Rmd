@@ -1,0 +1,194 @@
+---
+output: pdf_document
+---
+
+# Introduction
+
+## Context and Motivation
+
+### General description
+
+Standard classical linear regression is usually not valid when data have a clustered/grouped structure since measurements on units within a cluster are in general more similar than measurements on units in different clusters, and thus not all observations can be considered independent. Statistical models for this type of data must account for the intra-cluster correlation (ICC) at each level, otherwise inferences may be misleading.
+
+Several methods for analyzing multilevel data have been developed, which require different sets of assumptions and their adequacy differs depending on the structure of the data. After a review of the different available methods, only linear mixed models (LMMs) and the generalized estimating equations (GEEs) approach will be considered in our analysis. These two methods seem to be the two most widely used when analyzing clustered data. We will argue, however, that LMMs provide a more flexible approach than GEEs for cluster-correlated data, and therefore focus our analysis in the linear mixed model approach.
+
+This will be illustrated through two case-studies analyzing real data sets from different scientific fields. The first data set comes from a 48-week, multi-center clinical trial evaluating the efficacy and tolerability of two different treatments for HIV-infected patients [@nuria]. The second data set comes from a microarray experiment studying the .
+
+Furthermore, the data and code used in the analysis will be hosted in a Github repository for easier sharing reproducibility.
+
+
+### Motivation
+
+The fields where clustered data arise are numerous, from the social sciences to the natural sciences. Examples of clustered data are multi-center clinical trials where measurements on patients are nested within clinics, toxicity studies where repeated measurements are obtained from a single individual at different times or agricultural experiments with complex experimental designs. Knowing what method works best with a given data set is not straightforward. 
+
+A review of the literature suggests that the two most common methods for analyzing multilevel data are LMMs and GEEs. Each method has advantages and drawbacks. Linear mixed models require additional assumptions beyond those of classical regression, which can be difficult to verify [@geeHubbard]. On the other hand, GEE can be problematic in small sample settings, in unbalanced designs and when there are missing data [@geeRogers15]. Moreover, since GEE is a quasi-likelihood method, likelihood-based methods are not available for usual statistical inference.
+
+The present project aims to provide some examples and suggestions for researchers trying to analyze multilevel data.
+
+## Objectives
+
+### General Objectives
+
+1. Review of methods for cluster-correlated data analysis.
+
+2. Analysis of two real data sets with a multilevel structure from different fields in science using LMMs.
+
+
+### Specific Objectives
+
+#### Review of methods
+
+1. Define clustered data and review statistical methods for this type of data.
+
+2. Specify the generalized estimating equations method and the linear mixed model.
+
+3. Strengths and weaknesses of these two methods.
+
+
+#### Analysis of real cluster-correlated data
+
+1. Exploratory analysis of two examples of clustered data.
+
+2. Analyze these data using LMMs.
+
+3. Sharing the data and code through Github.
+
+
+## Approach and Methods
+
+The project tries to provide some guidelines in the analysis of cluster-correlated data. This will be done by analyzing data from a 48-week, multi-center clinical study [@nuria] and a microarray experiment [@radiation2007]. The data sets were chosen because they both have a multilevel structure and the original studies where these data come from do not use LMMs for their analysis.
+
+It is important to understand the multilevel structure of the data at hand before any modeling is done, thus great emphasis is placed on graphical exploration of the data. This exploration provides insights about the nature of the data and hence about the potential model that will later be used.
+
+After a review of the relevant methods for clustered data analysis and a detailed specification of the LMMs and GEEs frameworks, we argue that LMMs provide a more flexible approach and use it to analyze the two data sets.
+
+A more theoretical or empirical approach in the assessment of LMMs and GEEs was considered, but seemed to be out of reach given the time constraint and the expected scope of the project. Instead, a more hands-on approach has been taken, illustrating a sample workflow and potential problems encountered when analyzing clustered data. A simulation-based assessment of these and other methods can be found in @galbraith10.
+
+The project will extensively use the R programming environment to accomplish the proposed objectives. R is a free and open source programming language specifically designed for statistical analysis, with hundreds of packages that perform specific tasks. In the context of cluster-correlated data, the packages `nlme` and `lme4` provide two frameworks to fit linear mixed models, while the `geepack` package implements the generalized estimating equations approach.
+
+Moreover, the R programming environment provides a workflow for reproducible research. As opposed to point-and-click statistical software, in R it is easy for independent researchers to reproduce the analysis since it weaves the principle of reproducibility throughout the entire project. In particular, with self-contained R packages it is straightforward to share and reproduce the analysis performed, by attaching the data and source code into a single file that can be loaded within the R environment.
+
+Since a large amount of code will be written, version control will be used. Git and Github helped keep track of changes in the project and correct potential bugs in the code.
+
+The data and the RMarkdown files used in the generation of this manuscript is hosted in Github (https://github.com/solmos/tfm).
+
+
+## Project Planning
+
+### Tasks
+
+
+**Review of methods** (25 days)
+
+1. Review the literature for multilevel data analysis: *10 days*
+
+2. Define LMMs and GEEs: *10 days*
+
+2. State the known advantages and limitations of LMMs and GEE: *5 days*
+
+
+
+**Analysis of real cluster-correlated data sets** (28 days)
+
+1. Find two or three data sets with different hierarchical structures: *7 days*
+
+2. Perform exploratory data analysis: *7 days*
+
+3. Fit a chosen model: *7 days*
+
+4. Evaluate the fit of the model to the data: *7 days*
+
+
+**Github repository** (7 days)
+
+1. Prepare the data sets used: *3 days*
+
+2. Comment the code: *4 days*
+
+
+**Presentation** (5 days)
+
+1. Create the presentation slides: *3 days*
+
+2. Record a video presentation of the project: *2 days*
+
+### Timeline
+
+A Gantt diagram is shown in Figure \ref{gantchart} with a timeline of the progress of the project. The timeline expands from March 20 to June 5. The red boxes indicate difficult and important tasks.
+```{r echo=FALSE, eval=FALSE}
+library(DiagrammeR)
+mermaid("
+gantt
+title Gantt Diagram
+
+section Specific Tasks
+Model definitions:      crit,         definitions,    2017-03-23, 10d
+Exploratory analysis:        explore,         after review, 7d
+Fit models to real data:        crit,        fit,    2017-04-23, 15d
+
+section Milestones
+Overview of methods:    active,         review,         2017-03-20, 25d
+Analysis of real data:                  analysis,       after review, 40d
+Presentation:                   presentation,   2017-06-01, 5d
+
+section Extra
+Github repository:                              pckg,           after analysis, 10d")
+```
+
+![Gant diagram for the project \label{gantchart}](gant_chart.png)
+
+Three sections are shown which indicate relative importance and scope of the tasks. Tasks in the milestones section are general and of great importance to the project. The section named `Specific Tasks` shows some sub-tasks which are critical within each milestone. The section `Extra` shows tasks that could be left undone in case the more important tasks take longer than planned.
+
+
+### Milestones
+
+#### Overview of methods
+The definition of the models considered in this project is essential for the subsequent analysis since it provides the necessary context and notation.
+
+
+#### Analysis of real data
+This section of the project is of great practical value since it illustrates the complete modeling process with real data. These analyses form the structure of the R Markdown template that we intend to include in the R package included in this project.
+
+
+## Deviations
+
+The initial idea of the project was to perform a more formal approach comparing LMMs and GEEs. Specifically, a simulation study was to be conducted to observe how the two methods behaved under different clustered structures. The idea was abandoned due to lack of time and resources.
+
+## Results
+
+* A manuscript with the results of the analyses of the real data sets.
+
+* A Github repository with all the data and code.
+
+* Virtual presentation showing the methodology used and the most important results of the project.
+
+* Self-assessment of the project according to the evaluation criteria.
+
+\newpage
+
+## Main chapters
+
+**2. Clustered data**
+
+Definition of cluster-correlated data and review of statistical methods used to analyze this type of data.
+
+**3. Linear mixed models**
+
+Specification of LMMs and strengths and limitations.
+
+**4. Generalized estimating equations**
+
+Specification of the GEEs approach and strengths and limitations.
+
+**4. LAKE study**
+
+Analysis of the data from [@nuria].
+
+**6. Microarray study**
+
+Analysis of the data from [@radiation2007].
+
+**7. Conclusion**
+
+Brief summary of the results obtained.
+

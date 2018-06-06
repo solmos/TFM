@@ -1,0 +1,31 @@
+---
+output: pdf_document
+---
+
+
+Linear mixed models provide a powerful and flexible method to analyze cluster-correlated data. An exhaustive review of the available methods in clustered data analysis is presented and the advantages of linear mixed models are stated. As an illustration of how flexible these models are, two case-studies are presented. First, we analyze data from a longitudinal multi-center clinical trial studying the effect of two antiretroviral treatments in HIV-infected patients. The second case-study analyzes gene expression profiles from a microarray experiment studying the effect of radiation on keratinocytes. The two analyses provide examples of the great flexibility of linear mixed models in the context of clustered data.
+
+**Keywords**: linear mixed models, clustered data, multilevel models
+
+
+***
+
+* **Título**: Analysis of clustered data using linear mixed models
+
+* **Autor**: Sergio Olmos Pardo
+
+* **Consultor**: Núria Pérez Álvarez
+
+* **Coordinador**: Carles Ventura Royo
+
+* **Fecha de entrega**: 05/2018
+
+* **Titulación**: Máster en Bioinformática y Bioestadística
+
+* **Área del TFM**: Análisis de datos 9
+
+* **Idioma del trabajo**: Inglés
+
+* **Palabras clave**: Modelos mixtos lineales, datos en cluster, modelos multinivel
+
+* **Resumen**: Los modelos mixtos lineales son un método potente y flexible para analizar datos en cluster. Se presenta una revisión de los métodos disponibles de análisis de este tipo de datos y se exponen las ventajas de los modelos lineales mixtos. Como ilustración de lo flexible que estos modelos pueden ser, se presentan dos ejemplos prácticos. Primero, analizamos los datos de un ensayo clínico multi-céntrico y longitudinal que estudia el efecto de dos tratamientos antiretrovirales con pacientes infectados con VIH. El segundo ejemplo práctico analiza los perfiles de expresión génica de un experimento de microarrays que estudia el efecto de la radiación en queratinocitos. Estos dos análisis son un ejemplo de la gran flexibilidad de los modelos lineales mixtos en el contexto de datos en cluster.

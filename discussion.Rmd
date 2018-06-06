@@ -1,0 +1,13 @@
+---
+output: pdf_document
+---
+
+# Conclusion
+
+The present project tried to illustrate how flexible linear mixed models are in the context of clustered data. The review of methods has provided many references discussing the limitations of other methods relative to multilevel models. A simulation-based approach assessing the strengths of LMMs over these other methods, as was originally intended, could be pursued in a future project.
+
+The case-studies showed how linear mixed models can be used for analyzing data with different multilevel structures. In the analysis of the longitudinal multi-center trial [@nuria], several models were implemented in the R programming environment. The used data set had a large number of missing values which were not analyzed in detail. Missing data patterns are a key issue in longitudinal data analysis and a more exhaustive analysis of the missing data from this study could provide a better understanding of how missing data may affect our analysis.
+
+The second case-study showed how to apply linear mixed models in the context of microarray data. The data set from @radiation2007 were used to illustrate how multilevel models can be used to perform gene-set or pathway analysis. The microarray experiment had a relatively simple design, but more complex experimental designs can be easily specified in the multilevel model framework.
+
+Researchers trying to analyze clustered data can download the data and the RMarkdown files used in the generation of this manuscript from the project's Github repository (https://github.com/solmos/tfm) and adapt the code to their needs.

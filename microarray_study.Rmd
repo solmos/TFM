@@ -1,0 +1,383 @@
+---
+output: pdf_document
+---
+
+# Microarray study
+
+The data used in this second example comes from a microarray experiment studying the gene expression response of rat keratinocytes to a (56)Fe ion beam [@radiation]. Keratinocytes were exposed to 1.01 geV/nucleon (56)Fe ion radiation for 24 hours and gene expression was measured. The experimental design consists in three arrays with RNA from exposed cells and three arrays with RNA with cells not exposed to radiation. A total of 69 known genes were significantly (p $\leq$ 0.001) altered and several categories of genes associated with with cell cycle regulation were found to be significantly altered (p $\leq$ 0.01).
+
+@radiation used two sample t-tests to find genes whose expression varied significantly. Then hypergeometric tests were used to perform gene-set analysis to identify which Gene Ontology (GO) categories had a significantly larger number of significantly altered genes.
+
+Each gene-set category, as defined by GO, contains a number of genes which are associated with a given biological function. Gene expression values within a gene-set are therefore nested within genes. For several gene-sets, we use linear mixed models to assess if the gene expression pattern is different in the two treatment arms. For more examples of linear mixed models being used to perform gene-set or pathway analysis see @goeman2004.
+
+This example focuses more on formal inference, as opposed to the previous section which focused on descriptive modeling. To assess the difference in the gene expression patterns between the treatment groups, empirical estimates and p values will be obtained using simulation.
+
+
+## Exploratory analysis
+
+### Data
+
+The data were obtained from the raw CEL files provided by the authors at the NIBC GEO DataSets portal (accession identifier GDS2637). The Bioconductor package `affy` was used to read and extract the intensity values and the samples information. For easier interpretation, let `r1`, `r2`, `r3` be the three arrays in the exposed group and `c1`, `c2`, `c3` the arrays in the control group.
+
+Control group:
+
+* `c1`: GSM144733.CEL
+
+* `c2`: GSM144734.CEL
+
+* `c3`: GSM144735.CEL
+
+Radiation group:
+
+* `r1`: GSM144736.CEL
+
+* `r2`: GSM144737.CEL
+
+* `r3`: GSM144738.CEL
+
+
+
+```{r}
+## Read the .CEL files
+library(affy)
+library(Biobase)
+cel_file_names <- list.files("cel_files/", full.names = TRUE)
+microarray_affy <- ReadAffy(filenames = cel_file_names)
+
+## Add factor group (control/radiation) as phenodata
+pdatos <- Biobase::pData(microarray_affy)
+grupo <- factor(c(rep("control",3), rep("radiation",3)))
+id <- c(paste0("c", 1:3), paste0("r", 1:3))
+pdatos <- cbind(pdatos,grupo,id)
+colnames(pdatos) <- c("Sample", "Group", "ID")
+#kable(pdatos, caption = "Experimental design. \\label{experiment}")
+Biobase::pData(microarray_affy) <- pdatos
+```
+
+
+The $\log_2$ intensities is the response variable representing the gene expression. We normalize the arrays to one another and adjust for background noise using the Robust Multichip Average (RMA) expression measure described in @izarri2003 as our response variable. Figure \ref{density} shows the distribution of the pre-normalized log intensities (left) and the distribution of the normalized intensities (right) for each array.
+```{r}
+raw_exprs_matrix <- exprs(microarray_affy)
+colnames(raw_exprs_matrix) <- id
+probe_names_raw <- rownames(raw_exprs_matrix)
+assay_names_raw <- colnames(raw_exprs_matrix)
+ngenes_raw <- nrow(raw_exprs_matrix)
+intensity_raw <- unlist(as.data.frame(raw_exprs_matrix))
+raw_exprs_df <- data.frame(probeid = factor(probe_names_raw),
+                           intensity = intensity_raw,
+                           array_id = factor(rep(assay_names_raw,
+                                                 each = ngenes_raw)),
+                           Treatment = factor(rep(c("control", "radiation"),
+                                                  each = ngenes_raw * 3)))
+```
+
+```{r, fig.cap="Distribution of log intensities for the six arrays. \\label{density_}", fig.height=3}
+raw_density_plot <- ggplot(raw_exprs_df, aes(log2(intensity), color = Treatment,
+                                             group = array_id)) +
+        geom_line(stat = "density", alpha = 0.6) +
+        labs(y = "Density",
+             x = "Log intensity") +
+        theme_bw()
+```
+
+
+
+```{r, results="hide"}
+library(magrittr)
+norm_affy <- rma(microarray_affy)
+norm_matrix <- exprs(norm_affy)
+colnames(norm_matrix) <- id
+probe_names <- rownames(norm_matrix)
+assay_names <- colnames(norm_matrix)
+ngenes <- nrow(norm_matrix)
+intensity_vector <- unlist(as.data.frame((norm_matrix)))
+norm_df <- data.frame(probeid = factor(probe_names),
+                            intensity = intensity_vector,
+                            array_id = factor(rep(assay_names,
+                                              each = ngenes)),
+                            Treatment = factor(rep(c("control", "radiation"),
+                                                   each = ngenes * 3)))
+```
+
+```{r, fig.cap="Distribution of pre-processed log intensities (left) and normalized log intensities (right) for the six arrays. \\label{density}", fig.height=4}
+raw_density_plot <- ggplot(raw_exprs_df, aes(log2(intensity), color = Treatment,
+                                             group = array_id)) +
+        geom_line(stat = "density", alpha = 0.6) +
+        labs(y = "Density",
+             x = "Log intensity",
+             title = "Pre-processed") +
+        theme_bw()
+norm_density_plot <- ggplot(norm_df, aes(log2(intensity), color = Treatment,
+                                         group = array_id)) +
+        geom_line(stat = "density", alpha = 0.6) +
+        labs(y = "Density",
+             x = "Log intensity",
+             title = "RMA") +
+        theme_bw()
+grid.arrange(raw_density_plot, norm_density_plot, nrow = 2)
+```
+
+
+
+
+
+```{r}
+library(rat2302.db)
+go_terms <- rat2302GO
+mapped_genes <- mappedkeys(go_terms)
+go_terms_list <- as.list(go_terms[mapped_genes])
+```
+
+
+```{r results="hide"}
+library(dplyr)
+ensembl <- rat2302ENSEMBL
+mgenes <- mappedkeys(ensembl)
+ensembl_list <- as.list(ensembl[mgenes])
+extract_ensembl <- function(x_list){
+        ensembl <- lapply(x_list, function(x) x[1])
+        unlist(ensembl)
+}
+ensembl_names <- extract_ensembl(ensembl_list)
+ensembl_df <- data.frame(probeid = names(ensembl_names),
+                        ensembl_id = ensembl_names)
+ensembl_df
+partial_df <- left_join(ensembl_df, norm_df, by = "probeid")
+```
+
+
+```{r results="hide"}
+library(dplyr)
+extract_ontology <- function(x_list){
+        ontology_list <- lapply(x_list, function(y) y$Ontology)
+        unlist(ontology_list)
+}
+
+extract_goid <- function(x_list){
+        id_list <- lapply(x_list, function(y) y$GOID)
+        unlist(id_list)
+}
+
+get_go_df <- function(nested_list){
+        ontology <- unlist(sapply(nested_list, extract_ontology))
+        go_id <- unlist(sapply(nested_list, extract_goid))
+        n_go_terms <- unlist(sapply(nested_list, length))
+        probeid <- rep(names(nested_list), n_go_terms)
+        go_df <- data.frame(probeid, go_id, ontology)
+        go_df
+}
+
+go_df <- get_go_df(go_terms_list)
+full_df <- left_join(go_df, partial_df, by = "probeid") %>% 
+        mutate(probeid = factor(probeid))
+```
+
+```{r}
+library(dplyr)
+bp_df <- full_df %>% 
+        filter(ontology == "BP") %>% 
+        distinct()
+```
+
+```{r summary}
+summ_go <- bp_df %>% 
+        group_by(go_id) %>% 
+        summarise(n = n(),
+                  genes = length(unique(ensembl_id)),
+                  mean = mean(intensity),
+                  median = median(intensity),
+                  sd = sd(intensity),
+                  max = max(intensity),
+                  min = min(intensity))
+```
+
+
+```{r}
+# How maney GO terms and mean number of genes
+summary_df <- summ_go %>% 
+        summarise(Categories = length(go_id),
+                  Mean = mean(genes),
+                  Median = median(genes),
+                  SD = sd(genes),
+                  Min = min(genes),
+                  Max = max(genes))
+kable(summary_df, caption = "Number of genes in GO biological proecess categories. \\label{categories}")
+```
+
+\newpage
+
+Probes are mapped to Ensembl Gene IDs (http://ensembl.org) and then mapped to GO categories (http://geneontology.org) of biological processes using the `rat2302.db` annotation package. As can be seen in Table \ref{categories}, there are `r summary_df[1,1]` GO biological categories in our arrays with a median number of genes of `r summary_df[1,3]`. However, the number of genes for the different gene-sets varies greatly, ranging from `r summary_df[1,5]` to `r summary_df[1,6]` genes.
+
+
+```{r}
+chr_segregation_df <- filter(bp_df, go_id == "GO:0007059") %>% 
+        filter(!is.na(ensembl_id))
+go_summary <- chr_segregation_df %>%
+        summarise(Genes = length(unique(ensembl_id)),
+                  n = length(intensity),
+                  Mean = mean(intensity),
+                  SD = sd(intensity),
+                  Min = min(intensity),
+                  Max = max(intensity))
+kable(go_summary, caption = "Summary of gene-set named chromosome regulation (GO:0007059) \\label{summary_go}")
+```
+
+Consider the gene-set with ID GO:0007059 with associated biological process "chromosome segregation". The array being used has `r go_summary[1,1]` known genes from this category and each gene has 6 intensity measures, so there should be 336 `r go_summary[1,2]` observations. However, note that the arrays have several probes that map to the same gene. For computational efficiencies the median expression of the probes mapping to a given gene is used. This means that we have one intensity value per gene in each array. Table \ref{summary_go} and Figure \ref{go_density} show a summary and a density plot, respectively, for the observed log intensities in this gene-set.
+
+```{r}
+library(dplyr)
+median_intensity_df <- chr_segregation_df %>% 
+        group_by(ensembl_id, array_id) %>% 
+        summarise(intensity = median(intensity)) %>% 
+        as.data.frame() %>% 
+        mutate(gene = droplevels(ensembl_id),
+               treatment = rep(c("control", "radiation"),
+                               each = 3, times = 56)) %>% 
+        dplyr::select(gene, intensity, treatment, array_id)
+```
+
+
+
+```{r, fig.cap="Density plot of log intensity measures for gene-set involving chromosome segregation (GO:0007059) \\label{go_density}", fig.height=3}
+ggplot(median_intensity_df, aes(intensity, color = treatment)) +
+        geom_line(stat = "density", size = 1, alpha = 0.7) +
+        labs(x = "Log intensity",
+             y = "Density") +
+        theme_bw()
+```
+
+
+As for the gene expression pattern, Figure \ref{heatmap} shows a heatmap for all arrays and all genes where it is hard to see any differences between samples exposed to radiations and samples in the control group. It is hard to tell whether the gene expression profiles differ between treatment arms.
+
+```{r, fig.cap="Heatmap of gene expression patterns for the six arrays. \\label{heatmap}", fig.height=4}
+ggplot(median_intensity_df, aes(array_id, gene, fill = intensity)) +
+        geom_tile(color = "white") +
+        theme_minimal() +
+        theme(panel.grid = element_blank(),
+              axis.text.y = element_blank(),
+              legend.text = element_text(size = 7)) +
+        scale_fill_continuous(name = "Intensity") +
+        labs(x = "Array",
+             y = "Genes")
+```
+
+
+
+
+## Model
+
+The proposed model to evaluate the differences in the gene expression profiles is given by
+
+* Level 1 (Intensity measures within gene):
+
+$$y_{ij} = a_i + b_i \cdot rad_{ij} + \epsilon_{ij},$$
+
+where $y_{ij}$ is the log intensity for gene $i = 1, 2, \ldots, 56$ at array $j = 1, 2,\ldots, 6$ and $rad_{ij}$ is the indicator variable with $rad_{ij} = 1$ if gene $i$ at array $j$ was exposed to radiation and $rad_{ij} = 0$ if it was not. The terms $a_i$ and $b_i$ are random terms being modeled at Level 2 of our multilevel model. The within gene residual error is $\epsilon_{ij} \sim N(0, \sigma^2)$.
+
+* Level 2 (Gene):
+
+$$a_i = \alpha_0 + u_i $$
+
+$$b_i = \beta_0 + v_i$$
+
+where $\epsilon_{ij} \sim N(0, \sigma^2)$ and
+
+$$
+\begin{bmatrix}
+u_i \\
+v_i
+\end{bmatrix}
+\sim \left(
+\begin{bmatrix}
+0 \\
+0
+\end{bmatrix}
+,
+\begin{bmatrix}
+\sigma^2_u & 0 \\
+0 & \sigma^2_v
+\end{bmatrix}
+\right).
+$$
+
+This two level model can be expressed as the following composite model:
+
+$$y_{ij} = \alpha_0 + \beta_0 \cdot rad_{ij} + [u_i + v_i \cdot rad_{ij} + \epsilon_{ij}]$$
+
+Note that the two error terms at Level 2, $u_i$ and $v_i$ are assumed to be independent of each other.
+
+The parameters of the model are estimated by REML as implemented in the `lme4` package and are presented in Tables \ref{fixed_genes} and \ref{vcomp_genes}.
+```{r results="hide"}
+library(lme4)
+go_model <- lmer(intensity ~ treatment + (1|gene) + (0 + treatment|gene), data = median_intensity_df)
+summary(go_model)
+```
+
+```{r}
+get_estimates <- function(model) {
+        smer <- summary(model)
+        fixed_effects <- as.data.frame(coef(smer))
+        random_effects <- as.data.frame(VarCorr(model, comp = c("Variance", "Std.Dev")))
+        estimates_list <- list(fixed_effects = fixed_effects,
+                               random_effects = random_effects)
+        estimates_list
+}
+
+# Variance components
+get_vcomp <- function(model){
+        r_eff <- get_estimates(model)$random_effects %>% 
+                filter(is.na(var2))
+        total_variance <- sum(r_eff$vcov)
+        vcomp_table <- r_eff %>% 
+                transmute(Group = grp, Name = var1,
+                          Variance = vcov,
+                          Percentage = round(100 * vcov / total_variance, 2))
+        vcomp_table
+}
+```
+
+```{r}
+kable(get_estimates(go_model)$fixed_effects, caption = "Estimated fixed effects. \\label{fixed_genes}")
+```
+
+```{r}
+kable(get_vcomp(go_model), caption = "Estimated variance components. \\label{vcomp_genes}")
+```
+
+## Inference
+
+As argued in Section \ref{inference}, likelihood-based inference may be problematic in multilevel models. Instead, we use the parametric bootstrap procedure to obtain inferences about the model parameters. Empirical 95% confidence intervals and p values for the null hypothesis of no effect ($H_0: \beta_0 = 0$) are obtained for the fixed effects of our model.
+
+Table \ref{bootstrap_fixed} shows the fixed parameter estimates, together with median, 95% confidence intervals and p-values for the null hypothesis of no effect. Note that the so-obtained empirical p-value was is restricted not to be smaller than $1/n$, where $n$ is the number of simulations (1000 in this case). We see that treatment is statistically significant (p $\leq$ 0.005), suggesting that the pattern of expression of the gene-set "chromosome segregation" (GO:0007059) is different in the radiation exposed group.
+
+```{r}
+sim_intensity <- simulate(go_model, nsim = 1000)
+extract_parameters <- function(y) {
+        aux_fit <- refit(go_model, y)
+        summ <- summary(aux_fit)
+        beta <- fixef(aux_fit)
+        Sx <- getME(aux_fit, "theta")
+        sgma <- sigma(aux_fit)
+        list(beta = beta, ST = Sx, sigma = sgma)
+}
+sim_summary_list <- apply(sim_intensity, 2, extract_parameters)
+```
+
+
+```{r}
+beta_est <- sapply(sim_summary_list, function(x) x$beta)
+beta_mean <- apply(beta_est, 1, mean)
+beta_quantiles <- apply(beta_est, 1,
+                        function(x) quantile(x, c(0.5, 0.025, 0.975)))
+beta_pval <- apply(beta_est, 1,
+                   function(x){
+                           prb <- mean(x > 0)
+                           2 * pmax(0.5/ncol(beta_est), pmin(prb, 1 - prb))
+                   })
+beta_matrix <- cbind(beta_mean, t(beta_quantiles), beta_pval)
+colnames(beta_matrix) <- c("Mean", "Median", "Inf", "Sup", "p-val")
+beta_df <- as.data.frame(beta_matrix)
+kable(beta_df, caption = "Estimated fixed effects. \\label{bootstrap_fixed}")
+```
+
+

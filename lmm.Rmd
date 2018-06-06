@@ -1,0 +1,184 @@
+---
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+# Linear mixed models
+
+The formulation of the classical linear mixed model can be attributed to the paper by @laird82. Altough the paper proposes this framework in the context of longitudinal data, the model can be used for cluster-correlated data in general. For this reason, LMMs and its extension, generalized linear mixed models (GLMMs), are also refered to as multilevel models (MLMs) or hierarchical models (HMs). We will use these terms interchangably from now on.
+
+In general, a MLM can be seen as a linear or generalized linear regression model in which some of the regression coefficients are also given a probability model. The parameters of this second-level model, called hyperparameters, are also estimated from the data. This framework can be extended to higher level structures by subsequently giving hyperparameters a probability model. The regression coefficients being modeled are usually called random effects, while fixed effects correspond to parameters that do not vary by cluster or parameters that are not modeled. Typically, fixed effects describe levels of a factor that are of primary interest and which would not change in replications of the study. Random effects, on the other hand, describe levels of a factor which can be thought of as a small sample from a larger population of factor levels.
+
+For the purposes of this project only LMMs will be considered, that is, we will only consider multilevel models for continious normal responses. Although LMMs can be easily extended as GLMMs, we prefer to focus the limited scope of this project to normal data.
+
+We first define the classical linear mixed model framework for hierarchical (nested) data with a single level of grouping and then extend this framework to higher level grouping structures and non-nested structures.
+
+## The classical linear mixed model \label{classical_lmm}
+
+Consider a sample of independent multivariate outcome measurements $\boldsymbol y_i = (y_{i1}, \ldots, y_{it}, \ldots y_{in_i})$ of $i = 1, 2, \ldots, I$ clusters each with $n_i$ observations. This is, there is a single level of grouping with $I$ clusters and the total number of (univariate) observations is $n = n_1 + \ldots + n_I$. 
+
+
+Let
+
+$$\boldsymbol X_i =
+\left(
+\begin{array}{ccccc}
+1 & x_{i1}^{(1)} & \cdots & x_{i1}^{(p)} \\
+\vdots & \vdots & \ddots & \vdots\\
+1 & x_{in_i}^{(1)} & \cdots & x_{in_i}^{(p)}
+\end{array}
+\right)
+= \left(\boldsymbol x_{i1}, \ldots, \boldsymbol x_{it}, \ldots, \boldsymbol x_{in_i}\right)^T$$
+
+be the $n_i \times (p+1)$ matrix of the $p$ population-level covariate values in cluster $i$.
+
+Similarly, let
+
+$$\boldsymbol Z_i =
+\left(
+\begin{array}{ccccc}
+1 & z_{i1}^{(1)} & \cdots & z_{i1}^{(q)} \\
+\vdots & \vdots & \ddots & \vdots\\
+1 & z_{in_i}^{(1)} & \cdots & z_{in_i}^{(q)}
+\end{array}
+\right)
+= \left(\boldsymbol z_{i1}, \ldots, \boldsymbol z_{it}, \ldots, \boldsymbol z_{in_i}\right)^T,$$
+
+be the $n_i \times (q + 1)$ matrix of the $q$ group-level covariate values in cluster $i$.
+
+The fixed effects are represnted by $\boldsymbol \beta = (\beta_0, \beta_1, \ldots, \beta_p)^T$ and the random effects are given by $\boldsymbol b_i = (b_{i0}, b_{i1}, \ldots, b_{iq})^T$. Note how $\boldsymbol \beta$ does not vary by cluster, while a different set of random effects is specified for each cluster.
+
+Let $\boldsymbol X_i = (\boldsymbol x_{i1}, \ldots, \boldsymbol x_{it}, \ldots, \boldsymbol x_{in_i})^T$ be the $n_i \times (p+1)$ matrix of the $p$ population-level covariate values in cluster $i$, with the first column being a vector of $1$'s. Similarly, let $\boldsymbol Z_i = (\boldsymbol z_{i1}, \ldots, \boldsymbol z_{it}, \ldots, \boldsymbol z_{in_i})^T$ be the $n_i \times (q + 1)$ matrix of the $q$ group-level covariate values in cluster $i$. The fixed effects are represnted by $\boldsymbol \beta = (\beta_0, \beta_1, \ldots, \beta_p)^T$ and the random effects are given by $\boldsymbol b_i = (b_{i0}, b_{i1}, \ldots, b_{iq})^T$. Note how $\boldsymbol \beta$ does not vary by group, while a different set of random effects is specified for each cluster.
+
+Then the linear mixed model is given by
+
+$$\boldsymbol y_i = \boldsymbol X_i \boldsymbol \beta + \boldsymbol Z_i \boldsymbol b_i + \boldsymbol \epsilon_i ,$$
+
+where $\boldsymbol \epsilon_i \sim N(\boldsymbol 0, \boldsymbol \Sigma_i)$. We also model the random effects as $\boldsymbol b_i \sim N(\boldsymbol 0, \boldsymbol Q)$. Additionally, in a nested grouping structure, error terms $\boldsymbol \epsilon_i$ and random effects $\boldsymbol b_i$ are assumed to be mutually independent.
+
+This model implies the following conditional model
+
+$$\boldsymbol y_i | \boldsymbol b_i \sim N(\boldsymbol X_i \boldsymbol \beta + \boldsymbol Z_i \boldsymbol b_i, \boldsymbol \Sigma)$$
+for the response vector $\boldsymbol y_i$, given the random effect $\boldsymbol b_i$. Thus the residual covariance $\boldsymbol \Sigma$ is often refered to as the conditional covariance.
+
+It is possible to show that the corresponding marginal model is given by
+
+$$\boldsymbol y_i \sim N(\boldsymbol X_i \boldsymbol \beta, \boldsymbol \Sigma + \boldsymbol Z_i \boldsymbol Q \boldsymbol Z_i^T).$$
+
+The covariance matrix $\boldsymbol V_i = \boldsymbol \Sigma + \boldsymbol Z_i \boldsymbol Q \boldsymbol Z_i^T$ is called the marginal covariance of $\boldsymbol y_i$.
+
+The covariance matrix of the random effects, $\boldsymbol Q$, can be given a specific structural form to account for the possibility that random effects at the same level might be correlated. Similarly, different residual covariance structures can be specified for the conditional covariance matrix such as compound symmetry or autoregressive correlation.
+
+
+## Extensions
+
+### Higher levels of grouping
+
+The classical LMM can be adapted to multilivel grouped data. Consider data with two levels of grouping, with observations grouped into $I$ first-level clusters, each with $J$ second-level sub-groups (indexed by $j = 1, \ldots, J$) containing $n_{ij}$ observations. The LMM in this situation is given by
+
+$$\boldsymbol y_{ij} = \boldsymbol X_{ij} \boldsymbol \beta + \boldsymbol Z_{1, ij} \boldsymbol b_i + \boldsymbol Z_{2, ij} \boldsymbol b_{ij} + \boldsymbol \epsilon_{ij},$$
+
+where $\boldsymbol b_i \sim N(\boldsymbol 0, \boldsymbol Q_1)$, $\boldsymbol b_{ij} \sim N(\boldsymbol 0, \boldsymbol Q_2)$ and $\boldsymbol \epsilon_{ij} \sim N(\boldsymbol 0, \boldsymbol \Sigma_{ij})$, and independent of each other.
+
+### Non-nested structures
+
+Note that in the two-level grouping above, the second-level grouping is nested within the first-level groups. That is, each cluster $i$ contains an exclusive set of second-level clusters. This is the reason that the two random effects $\boldsymbol b_i$ and $\boldsymbol b_{ij}$ are independent. However, when the levels of the two grouping factors are not nested, the observations are grouped by overlapping categories and therefore the two random effects are not independent. Multilevel models can be adapted to non-nested structures, in which case the model can be specified as
+
+$$\boldsymbol y_{ij} = \boldsymbol X_{ij} \boldsymbol \beta + \boldsymbol Z_{1, ij} \boldsymbol b_i + \boldsymbol Z_{2, ij} \boldsymbol b_{j} + \boldsymbol \epsilon_{ij},$$
+
+where $\boldsymbol b_j$ is the random effect corresponding to the factor with levels $j = 1, \ldots, J$. Note that, as compared to the nested framework, the random effects $\boldsymbol b_j$ are no longer specific to each level $i$ of the other grouping factor. That is, each random effect $\boldsymbol b_j$ remains the same for all random effects $\boldsymbol b_i$.
+
+## Multilevel framework
+
+The linear mixed model defined above can be specified with a different but equivalent framework which involves less matrix notation. Linear mixed models are also called multilevel or hierarchical models not only because of the clustered structure of the data. It was mentioned that a MLM can be seen as a linear or generalized linear regression model in which some of the regression coefficients are also given a probability model. The parameters of this second-level model, called hyperparameters, are also estimated from the data. This view allows for a simpler and intuitive definition of multilevel models.
+
+In the case of one grouping factor and a single level-one predictor variable, we can define a MLM with varying intercept as a two level model:
+
+* Level 1:
+
+$$y_{ij} = a_i + b_i x_{ij} + \epsilon_{ij}$$
+
+* Level 2:
+
+$$a_i = \alpha_0 + u_i$$
+$$b_i = \beta_0 + v_i$$
+
+where $\epsilon_{ij} \sim N(0, \sigma^2)$, $u_i \sim N(0, \sigma^2_u)$ and $v_i \sim N(0, \sigma_v^2)$. Error terms $u_i$ and $v_i$ are assumed to be independent from the residual errors $\epsilon_{ijk}$, but can be correlated with each other, with covariance $\sigma_{uv}^2$. In general, error terms in the same level may be given a specific variance-covariance structure, but they are assumed to be independent from the within group residual errors and from error terms in diferent levels of our model.
+
+Note that if we want to have a random intercept but a fixed slope, eliminate the error term $v_i$ so that $b_i = \beta_0$.
+
+In this system, there are two fixed effects to estimate: $\alpha_0$ and $\beta_0$. The intercepts and slopes for each cluster from Level 1, $a_i$ and $b_i$ serve to conceptually connect Level 1 with Level 2. Note the use of Greek letters to denote fixed effects model parameters and Roman letters (and $\epsilon$) to denote error terms for which we specify a probability distribution.
+
+To understand the connection of this framework with the classical linear mixed model formulation presented in Section \ref{classical_lmm} we can substitute $a_i$ and $b_i$ in the Level 1 equation by the expressions of Level 2, giving the following composite model
+
+$$\begin{aligned}
+y_{ij} &= \alpha_0 + u_i + (\beta_0 + v_i) x_{ij} + \epsilon_{ij} \\
+&= \alpha_0 + \beta_0 x_{ij} + [u_i + v_i x_{ij} + \epsilon_{ij}],
+\end{aligned}$$
+
+resulting in a similar expression to the classical linear mixed model formulation
+
+It is possible to easily specify more complex models in this framework. For instance, we could add a level-two covariate to our simple model as follows:
+
+* Level 1:
+
+$$y_{ij} = a_i + b_i x_{ij} + \epsilon_{ij}$$
+
+* Level 2:
+
+$$a_i = \alpha_0 + \alpha_1 z_i + u_i$$
+
+$$b_i = \beta_0 + \beta_1 z_i + v_i,$$
+
+where $z_i$ is a level-two covariate and $\alpha_1, \beta_1$ are additional fixed parameters. In this case there are two error terms $u_i, v_i$
+
+
+The composite model of this system is
+
+$$y_{ij} = \alpha_0 + \alpha_1 z_i + \beta_0 x_{ij} + \beta_1 z_i x_{ij} + u_i + v_i x_{ij} + \epsilon_{ij}.$$
+
+Note that modeling $b_i$ with a level-two predictor covariate $z_i$ produces an interaction term $z_i x_{ij}$ in the composite model.
+
+Specifying higher-level by modeling the parameters at higher levels of our model. In the case of a three level hierarchy with measurements nested within one grouping factor nested within a second grouping factor, as well as a varying intercept and one predictor at Level 1, our model would be defined by
+
+* Level 1:
+
+$$y_{ijk} = a_{ij} + b_{ij} x_i + \epsilon_{ijk}$$
+
+\newpage
+
+* Level 2:
+
+$$a_{ij} = a_i + u_{ij}$$
+
+$$b_{ij} = b_i + v_{ij}$$
+
+* Level 3:
+
+$$a_i = \alpha_0 + \tilde u_i$$
+
+$$b_i = \beta_0 + \tilde v_i$$
+
+Which gives the composite model
+
+$$y_{ijk} = \alpha_0 + \beta_0 x_{ijk} + [(u_{ij} + v_{ij} x_{ijk}) + (\tilde u_{i} + \tilde v_i x_{ijk})] + \epsilon_{ijk}$$
+
+This framework provides useful information of the required computations as well as the variance-covariance structure of the model. Moreover, it can help interpreting the model parameter estimates. However, formulation of the models in this framework becomes quite convoluted as larger models are considred. Thus we chose to use the classical linear mixed model framework to specify the models in our analyses. We hope this section provides some insight into the underlying concepts and computations in linear mixed models.
+
+## Inference \label{inference}
+
+Inference about the parameters of LMMs has been typically based on the usual F-tests and Wald or LR tests. However, @pinheiro2002 argue that the approximation of the asymtotic null distribution of the test statistics for both the fixed effects and the variance-covariance parameters can be problematic. Instead, they suggest the use of simulation-based p values based on methods such as parametric bootstrap or Markov Chain Monte Carlo. We will take this latter approach when testing hypothesis in our analyses.
+
+## Modeling strategy
+
+Our strategy for building multilevel models follows closely with that described by @galecki2013 and @gelman_hill_2006. The strategy begins with extensive exploratory data analysis at each level of our multilevel model. It is advisable to first fit some simple, preliminary models, in part to establish a baseline for evaluating more complex models. A multilevel model with no predictors at any level is a reasonable starting point and provides an initial assessment of the variability at each level. Then, starting at Level 1, predictors are added progressively to higher levels. Following the advice of @gelman_hill_2006, we do not use statistical significance as a criterion for including particular group indicators in a multilevel model.
+
+
+
+## R packages
+
+The two main R packages for mixed modeling are the `nlme` package [@nlme] and the `lme4` package [@lme4]. The key function of the `nlme` package is `lme()` which is specially suitable for fitting LMMs to small to moderate data with hierarchies defined by nested grouping factors. It is possible to specify different structures in the residuals with various forms of heterocedasticity and autocorrelation and in the random effects covariance matrices such as compound symmetry. On the other hand, the function `lmer()` of the `lme4` package provides simpler syntax and more efficient implementation for fitting LMMs with non-nested structures. The function `lmer()` can only fit conditional independence models with homocedastic residual errors and a general or diagonal covariance matrix for the random effects. Another important difference between `lme()` and `lmer()` is that the latter does not automatically provide any p-values for the statistical-significance tests based on the fitted model. Thus, if one needed to obtain p-values additional computation needs to be done when fitting LMMs with `lmer()`.
+
+
